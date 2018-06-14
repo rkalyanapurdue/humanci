@@ -1,0 +1,47 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:1.4.0.RELEASE")
+    }
+}
+
+apply plugin: 'java'
+apply plugin: 'idea'
+apply plugin: 'spring-boot'
+
+jar {
+    zip64 true
+    baseName = 'humanci-rest-service'
+    version =  '0.1.0'
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDirs "src/main/resources"
+        }
+    }
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+dependencies {
+    compile("org.springframework.boot:spring-boot-starter-web")
+    compile group: 'redis.clients', name: 'jedis', version: '2.8.2'
+    //compile group: 'org.apache.storm', name: 'storm-core', version: '1.0.1'
+    //compile group: 'org.apache.storm', name: 'storm-elasticsearch', version: '1.0.1'
+    compile fileTree(dir: 'lib', include: '*.jar')
+    runtime fileTree(dir: 'lib', include: '*.jar')
+    testCompile('org.springframework.boot:spring-boot-starter-test')
+}
+
+springBoot {
+  mainClass = "humanci.Application"
+}

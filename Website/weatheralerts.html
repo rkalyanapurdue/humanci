@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Image ArcGIS MapServer</title>
+    <link rel="stylesheet" href="http://openlayers.org/en/v3.18.1/css/ol.css" type="text/css">
+    <!-- The line below is only needed for old environments like Internet Explorer and Android 4.x -->
+    <script src="http://cdn.polyfill.io/v2/polyfill.min.js?features=requestAnimationFrame,Element.prototype.classList,URL"></script>
+    <script src="http://openlayers.org/en/v3.18.1/build/ol-debug.js"></script>
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <script src="jquery.blockUI.js"></script> 
+    <style>
+      .ol-dragbox {
+        background-color: rgba(255,255,255,0.4);
+        border-color: rgba(100,150,0,1);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map" class="map"></div>
+    <script>
+      var url = 'http://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/watch_warn_adv/MapServer/WMSServer';
+
+      var projection = ol.proj.get('EPSG:3857');
+
+    var wmsSource= new ol.source.TileWMS({
+      url: url,
+      params: {'LAYERS': '0'},
+      serverType: 'mapserver'
+        });
+
+     var layerWMS =   new ol.layer.Tile({
+	source: wmsSource});
+
+      var layers = [
+        new ol.layer.Tile({
+          source: new ol.source.OSM()
+        }),
+	layerWMS
+      ];
+
+	//var layers = [layerWFS];
+
+        var view = new ol.View({
+	  projection: projection,
+          //center: ol.proj.transform([-10997148, 4569099], 'EPSG:3857', 'EPSG:4269'),
+          center: [-10997148, 4569099],
+          zoom: 4
+        });
+
+      var map = new ol.Map({
+        layers: layers,
+        target: 'map',
+        view: view
+      });
+
+function updateInfoDiv()
+{
+    var _div = document.getElementById('info');
+    _div.innerHTML = "<p> Alert Keywords : "+alert_type+"<br/> Starts : "+start_time+" Ends : "+end_time; //+" <br/> Extents: ["+extents+"] </p>";
+    var _submit = document.getElementById('tracktweets');
+    _submit.disabled = false;
+}
+
+ var fill = new ol.style.Fill({
+   color: 'rgba(255,255,255,0.4)'
+ });
+ var stroke = new ol.style.Stroke({
+   color: '#db3d25',
+   width: 1.25
+ });
+ var styles = [
+   new ol.style.Style({
+     image: new ol.style.Circle({
+       fill: fill,
+       stroke: stroke,
+       radius: 5
+     }),
+     fill: fill,
+     stroke: stroke
+   })
+ ];
+
+
+var selectSingleClick = new ol.interaction.Select({style: styles});
+
+map.addInteraction(selectSingleClick);
+
+var selectedFeatures = selectSingleClick.getFeatures();
+
+var extents;
+var alert_type;
+var alert_kinds;
+var start_time;
+var end_time;
+
+selectSingleClick.on('select',function(evt) {
+	var f = evt.selected[0];
+	var prop = f.getProperties();
+        var geom = f.getGeometry();
+	var tmp_extents = geom.getExtent();
+	tmp_extents = ol.proj.transformExtent(tmp_extents,'EPSG:3857','EPSG:4326');
+	extents = [];
+	tmp_extents.forEach(function(ext) {
+		extents.push(ext.toFixed(2));
+	});
+	var keywords = prop.prod_type.split(" ");
+	keywords.forEach(function(kw) {
+		if(alert_type != undefined)
+			alert_type=alert_type+","+kw;
+		else
+			alert_type = kw;
+	});
+	start_time = prop.issuance;
+	end_time = prop.expiration;
+
+	updateInfoDiv();
+});
+
+
+var dragBox = new ol.interaction.DragBox({});
+
+map.addInteraction(dragBox);
+
+      dragBox.on('boxend', function() {
+        var extent = dragBox.getGeometry().getExtent();
+	var geom = new ol.geom.Polygon.fromExtent(extent);
+	var feature = new ol.Feature({geometry: geom});
+	selectedFeatures.push(feature);
+	var tmp_extents = ol.proj.transformExtent(extent,'EPSG:3857','EPSG:4326');
+	extents = [];
+	tmp_extents.forEach(function(ext) {
+		extents.push(ext.toFixed(2));
+	});
+	var alert_arr = [];
+	var alert_type_arr = [];
+ 	$.ajax('https://idpgis.ncep.noaa.gov/arcgis/services/NWS_Forecasts_Guidance_Warnings/watch_warn_adv/MapServer/WFSServer', {
+            type: 'GET',
+            data: {
+              service: 'WFS',
+              version: '1.1.0',
+              request: 'GetFeature',
+              typename: 'watch_warn_adv:WatchesWarnings',
+              srsname: 'EPSG:4326',
+              bbox: extents.join(',')
+           },
+           beforeSend: function() { $.blockUI(); }
+         }).done(function(response) {
+                var format = new ol.format.WFS();
+                var features = format.readFeatures(response);
+		features.forEach(function(feature) {
+          selectedFeatures.push(feature);
+	  var prop = feature.getProperties();
+	  var keywords = prop.prod_type.split(" ");
+
+  	  keywords.forEach(function(kw) {
+		if(alert_arr.indexOf(kw) === -1)
+			alert_arr.push(kw);
+	  });
+
+	  if(alert_type_arr.indexOf(prop.prod_type) === -1)
+		alert_type_arr.push(prop.prod_type);
+
+	  var start = new Date(prop.issuance);
+	  if(start_time != undefined)
+	  {
+	  	prev_start = new Date(start_time);
+		if(start.getTime() < prev_start.getTime())
+			start_time = prop.issuance;
+          }
+	  else
+		start_time = prop.issuance;
+		
+	  var end = new Date(prop.expiration);
+	  if(end_time != undefined)
+	  {
+	  	prev_end = new Date(end_time);
+		if(end.getTime() < prev_end.getTime())
+			end_time = prop.expiration;
+          }
+	  else
+		end_time = prop.expiration;
+        });
+
+        $.unblockUI();
+
+	alert_arr.forEach(function(prod) {
+	  if(alert_type != undefined)
+		alert_type = alert_type+","+prod;
+	  else
+		alert_type = prod;
+	});
+
+	alert_type_arr.forEach(function(prod) {
+	  if(alert_kinds != undefined)
+		alert_kinds = alert_kinds+","+prod;
+	  else
+		alert_kinds = prod;
+	});
+	
+	updateInfoDiv();
+
+      });
+
+     });
+
+      // clear selection when drawing a new box and when clicking on the map
+      dragBox.on('boxstart', function() {
+        selectedFeatures.clear();
+      });
+      map.on('click', function() {
+        selectedFeatures.clear();
+	extents = undefined;
+	alert_type = undefined;
+	alert_kinds = undefined;
+	start_time = undefined;
+	end_time = undefined;
+    	var _div = document.getElementById('info');
+	_div.innerHTML="<p></p>";
+        var _submit = document.getElementById('tracktweets');
+        _submit.disabled = true;
+        if($('#stop').is(':visible'))
+		$("#stop").toggle();
+	$(".stop").show();
+        if($('#start').is(':hidden'))
+		$("#start").toggle();
+        /*if($('#explore').is(':visible'))
+		$("#explore").toggle();*/
+	$("#count").html("0");
+      });
+
+</script>
+
+    <div id="info"></div>
+    <div id="start">
+    <input type="submit" id="tracktweets" disabled value="Track Tweets"/>
+    </div>
+    <div id="stop" hidden>
+    <table>
+    <tr>
+    <td class="stop"><input type="image" id="refresh" src="refresh.png" alt="Refresh"/></td>
+    <td id="count">0</td>
+    <td> tweet(s) collected</td>
+    <td class="stop"><input type="submit" id="stoptracking" value="Stop Tracking"/></td>
+    <td class="explore"><input type="submit" id="exploreIndex" value="Explore in Kibana"/></td>
+    </tr>
+    </table>
+    </div>
+    <div id="explore" hidden>
+    </div> 
+    <input type="hidden" id="indexName" value=""/>
+
+  </body>
+
+ <script>
+
+	$("#tracktweets").click(function() {
+	    $("#start").toggle();
+	    var lonmin = extents[0];
+	    var latmin = extents[1];
+	    var lonmax = extents[2];
+	    var latmax = extents[3];
+            $.ajax('http://HOSTNAME/tracktweets', {
+            type: 'GET',
+            data: {
+              keywords: alert_type,
+	      alertTypes: alert_kinds,
+	      endTime: end_time,
+	      geoBounds: latmin+","+lonmin+","+latmax+","+lonmax
+           },
+         }).done(function(response) {
+		$("#indexName").val(response);
+		$("#stop").toggle();
+		//$("#explore").toggle();
+		});
+	});
+
+	$("#stoptracking").click(function() {
+            $.ajax('http://HOSTNAME/stoptracking', {
+            type: 'GET',
+            data: {
+              index: $("#indexName").val()
+           },
+         }).done(function(response) {
+		$('.stop').hide();
+		$("#count").html(response);
+		//$("#explore").toggle();
+		});
+	});
+
+	$("#refresh").click(function() {
+	    var indx = $("#indexName").val();
+	    var url = 'http://ELASTICSEARCH_HOST/'+indx+'/_count';
+            $.ajax({
+	    url: url,
+            type: 'POST',
+	    dataType: 'json'
+         }).done(function(response) {
+		$("#count").html(response.count);
+		});
+	});
+
+	$("#exploreIndex").click(function() {
+	        var indx = $("#indexName").val();
+		var url = "http://KIBANA_HOST/#/discover?_g=()&_a=(columns:!(_source),index:"
+			  +indx+",interval:auto,query:(query_string:(analyze_wildcard:!t,query:'*')),sort:!(_score,desc))";
+	 	window.open(url);
+	});	
+
+  </script>
+
+</html>
